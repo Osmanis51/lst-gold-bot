@@ -29,8 +29,8 @@ import os
 # ══════════════════════════════════════════════════════════════
 CONFIG = {
     # ── Telegram ──────────────────────────────────────────────
-    "TG_TOKEN"      : os.getenv("TG_TOKEN", "TU_BOT_TOKEN_AQUI"),
-    "TG_CHAT_ID"    : os.getenv("TG_CHAT_ID", "TU_CHAT_ID_AQUI"),
+    "TG_TOKEN"      : os.getenv("TG_TOKEN", "8983485326:AAGEPpL3d_ZBSh_BnRpvgolyos6EK-A4wrA"),
+    "TG_CHAT_ID"    : os.getenv("1697629162"),
 
     # ── Cuenta de fondeo ──────────────────────────────────────
     "BALANCE"       : float(os.getenv("BALANCE", "10000")),
