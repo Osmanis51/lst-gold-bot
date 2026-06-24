@@ -21,8 +21,8 @@ import os
 # ==============================================================
 CONFIG = {
     # Telegram
-    "TG_TOKEN"   : os.getenv("8983485326:AAGEPpL3d_ZBSh_BnRpvgolyos6EK-A4wrA",   ""),
-    "TG_CHAT_ID" : os.getenv("1697629162", ""),
+    "TG_TOKEN"   : os.getenv("TG_TOKEN",   ""),
+    "TG_CHAT_ID" : os.getenv("TG_CHAT_ID", ""),
 
     # Cuenta de fondeo
     "BALANCE"  : float(os.getenv("BALANCE",  "10000")),
@@ -342,8 +342,8 @@ def calculate_lot(price: float, sl: float) -> dict:
 
 def send_telegram(msg: str):
     """Envia mensaje a Telegram."""
-    token   = CONFIG["8983485326:AAGEPpL3d_ZBSh_BnRpvgolyos6EK-A4wrA"]
-    chat_id = CONFIG["1697629162"]
+    token   = CONFIG["TG_TOKEN"]
+    chat_id = CONFIG["TG_CHAT_ID"]
 
     if not token or not chat_id:
         log.error("[ERROR] TG_TOKEN o TG_CHAT_ID vacios. Verifica las variables en Railway.")
@@ -510,12 +510,12 @@ def main():
 
     # Verificar configuracion al arrancar
     errors = []
-    if not CONFIG["8983485326:AAGEPpL3d_ZBSh_BnRpvgolyos6EK-A4wrA"]:
-        errors.append("8983485326:AAGEPpL3d_ZBSh_BnRpvgolyos6EK-A4wrA")
-    if not CONFIG["1697629162"]:
-        errors.append("1697629162")
-    if not CONFIG["8e51cc5f54564bb5bcc946db0590e236"]:
-        errors.append("8e51cc5f54564bb5bcc946db0590e236")
+    if not CONFIG["TG_TOKEN"]:
+        errors.append("TG_TOKEN vacio")
+    if not CONFIG["TG_CHAT_ID"]:
+        errors.append("TG_CHAT_ID vacio")
+    if not CONFIG["TWELVE_API_KEY"]:
+        errors.append("TWELVE_API_KEY vacio (registrate en twelvedata.com gratis)")
 
     if errors:
         for e in errors:
