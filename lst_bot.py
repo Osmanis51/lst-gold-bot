@@ -17,39 +17,26 @@ import numpy as np
 import os
 
 # ==============================================================
-# CONFIGURACION - edita las variables en Railway, no aqui
+# CONFIGURACION
+# Los valores vienen de las variables de Railway, NO van aqui
 # ==============================================================
 CONFIG = {
-    # Telegram
-    "TG_TOKEN"   : os.getenv("TG_TOKEN",   ""),
-    "TG_CHAT_ID" : os.getenv("TG_CHAT_ID", ""),
-
-    # Cuenta de fondeo
-    "BALANCE"  : float(os.getenv("BALANCE",  "10000")),
-    "RISK_PCT" : float(os.getenv("RISK_PCT", "0.50")),
-
-    # Gestion
-    "SL_PIPS"   : int(os.getenv("SL_PIPS", "150")),
-    "TP1_RATIO" : 1.5,
-    "TP2_RATIO" : 3.0,
-
-    # API de precio - Twelve Data (gratuita, 800 req/dia)
-    # Registrate en: https://twelvedata.com  -> API Keys -> Copy
+    "TG_TOKEN"       : os.getenv("TG_TOKEN",       ""),
+    "TG_CHAT_ID"     : os.getenv("TG_CHAT_ID",     ""),
     "TWELVE_API_KEY" : os.getenv("TWELVE_API_KEY", ""),
-
-    # Fibonacci
-    "FIB_LEVELS"    : [0.618, 0.700, 0.786],
-    "FIB_TOLERANCE" : 0.003,
-
-    # Filtros
-    "MIN_ATR"           : 0.50,
+    "BALANCE"        : float(os.getenv("BALANCE",  "10000")),
+    "RISK_PCT"       : float(os.getenv("RISK_PCT", "0.50")),
+    "SL_PIPS"        : int(os.getenv("SL_PIPS",   "150")),
+    "TP1_RATIO"      : 1.5,
+    "TP2_RATIO"      : 3.0,
+    "FIB_LEVELS"     : [0.618, 0.700, 0.786],
+    "FIB_TOLERANCE"  : 0.003,
+    "MIN_ATR"        : 0.50,
     "MIN_CONFIRMATIONS" : 2,
-
-    # Horarios UTC (broker UTC+3 = Londres 10:00 broker = 07:00 UTC)
-    "LONDON_START" : 7,
-    "LONDON_END"   : 10,
-    "NY_START"     : 12,
-    "NY_END"       : 16,
+    "LONDON_START"   : 7,
+    "LONDON_END"     : 10,
+    "NY_START"       : 12,
+    "NY_END"         : 16,
 }
 
 # ==============================================================
@@ -77,50 +64,75 @@ class BotState:
 state = BotState()
 
 # ==============================================================
+# TELEGRAM
+# ==============================================================
+
+def send_telegram(msg: str):
+    token   = CONFIG["TG_TOKEN"]
+    chat_id = CONFIG["TG_CHAT_ID"]
+
+    if not token or not chat_id:
+        log.error("[ERROR] TG_TOKEN o TG_CHAT_ID vacios en Railway Variables.")
+        return
+
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    try:
+        r = requests.post(url, json={
+            "chat_id"    : chat_id,
+            "text"       : msg,
+            "parse_mode" : "Markdown",
+        }, timeout=10)
+
+        if r.status_code == 200:
+            log.info("[OK] Telegram: mensaje enviado.")
+        elif r.status_code == 404:
+            log.error("[ERROR] Telegram 404: TG_TOKEN incorrecto en Railway Variables.")
+        elif r.status_code == 400:
+            log.error("[ERROR] Telegram 400: TG_CHAT_ID incorrecto en Railway Variables.")
+        else:
+            log.error(f"[ERROR] Telegram {r.status_code}: {r.text[:150]}")
+    except Exception as e:
+        log.error(f"[ERROR] Telegram: {e}")
+
+# ==============================================================
 # FUENTES DE PRECIO
 # ==============================================================
 
-def fetch_twelvedata(interval: str = "15min", outputsize: int = 100) -> Optional[pd.DataFrame]:
-    """
-    Twelve Data API - gratuita, 800 req/dia, funciona desde servidores cloud.
-    Registrate en twelvedata.com y pon tu key en la variable TWELVE_API_KEY.
-    """
+def fetch_twelvedata() -> Optional[pd.DataFrame]:
     key = CONFIG["TWELVE_API_KEY"]
     if not key:
-        log.warning("[AVISO] TWELVE_API_KEY no configurada. Agrega la variable en Railway.")
+        log.warning("[AVISO] TWELVE_API_KEY vacia en Railway Variables.")
         return None
 
     url = "https://api.twelvedata.com/time_series"
     params = {
         "symbol"     : "XAU/USD",
-        "interval"   : interval,
-        "outputsize" : outputsize,
+        "interval"   : "15min",
+        "outputsize" : 100,
         "apikey"     : key,
         "format"     : "JSON",
     }
     try:
-        r = requests.get(url, params=params, timeout=15)
+        r    = requests.get(url, params=params, timeout=15)
         data = r.json()
 
         if data.get("status") == "error":
-            log.error(f"[ERROR] Twelve Data: {data.get('message', 'error desconocido')}")
+            log.error(f"[ERROR] Twelve Data: {data.get('message')}")
             return None
 
         values = data.get("values", [])
         if not values:
-            log.error("[ERROR] Twelve Data: respuesta vacia")
+            log.error("[ERROR] Twelve Data: sin datos.")
             return None
 
-        rows = []
-        for v in values:
-            rows.append({
-                "datetime" : pd.to_datetime(v["datetime"], utc=True),
-                "Open"     : float(v["open"]),
-                "High"     : float(v["high"]),
-                "Low"      : float(v["low"]),
-                "Close"    : float(v["close"]),
-                "Volume"   : float(v.get("volume", 0)),
-            })
+        rows = [{
+            "datetime" : pd.to_datetime(v["datetime"], utc=True),
+            "Open"     : float(v["open"]),
+            "High"     : float(v["high"]),
+            "Low"      : float(v["low"]),
+            "Close"    : float(v["close"]),
+            "Volume"   : float(v.get("volume", 0)),
+        } for v in values]
 
         df = pd.DataFrame(rows).set_index("datetime").sort_index()
         log.info(f"[OK] Twelve Data: {len(df)} velas | Precio: {df['Close'].iloc[-1]:.2f}")
@@ -132,97 +144,71 @@ def fetch_twelvedata(interval: str = "15min", outputsize: int = 100) -> Optional
 
 
 def fetch_goldapi_price() -> Optional[float]:
-    """
-    gold-api.com - completamente gratuita, sin API key, solo precio actual.
-    Usada como fallback para confirmar precio.
-    """
     try:
         r = requests.get("https://api.gold-api.com/price/XAU", timeout=10)
         if r.status_code == 200:
-            data = r.json()
-            price = float(data.get("price", 0))
+            price = float(r.json().get("price", 0))
             if price > 100:
-                log.info(f"[OK] gold-api.com precio: {price:.2f}")
+                log.info(f"[OK] gold-api.com: {price:.2f}")
                 return price
     except Exception as e:
         log.warning(f"[AVISO] gold-api.com: {e}")
     return None
 
 
-def build_df_from_price(price: float, candles: int = 50) -> pd.DataFrame:
-    """
-    Construye un DataFrame sintetico cuando solo tenemos precio actual.
-    Se usa como ultimo recurso para no detener el bot.
-    """
+def build_df_from_price(price: float) -> pd.DataFrame:
     now   = pd.Timestamp.utcnow()
-    times = pd.date_range(end=now, periods=candles, freq="15min", tz="UTC")
+    times = pd.date_range(end=now, periods=50, freq="15min", tz="UTC")
     np.random.seed(int(now.timestamp()) % 9999)
-    noise  = np.random.uniform(-0.3, 0.3, candles)
-    closes = price + np.cumsum(noise)
-    closes = np.clip(closes, price * 0.995, price * 1.005)
+    noise  = np.random.uniform(-0.3, 0.3, 50)
+    closes = np.clip(price + np.cumsum(noise), price * 0.995, price * 1.005)
     return pd.DataFrame({
         "Open"   : closes - abs(noise) * 0.2,
         "High"   : closes + abs(noise) * 0.5,
         "Low"    : closes - abs(noise) * 0.5,
         "Close"  : closes,
-        "Volume" : np.ones(candles) * 1000,
+        "Volume" : np.ones(50) * 1000,
     }, index=times)
 
 
 def get_candles() -> Optional[pd.DataFrame]:
-    """
-    Obtiene velas del oro. Orden de prioridad:
-    1. Twelve Data (API gratuita, datos reales OHLCV)
-    2. gold-api.com precio actual + DataFrame sintetico (fallback)
-    """
-    # Intento 1: Twelve Data
     df = fetch_twelvedata()
     if df is not None and len(df) > 10:
         return df
 
-    # Intento 2: gold-api precio actual
-    log.warning("[AVISO] Twelve Data no disponible. Usando gold-api.com como fallback...")
+    log.warning("[AVISO] Twelve Data no disponible. Usando gold-api.com...")
     price = fetch_goldapi_price()
     if price:
-        log.warning(f"[AVISO] Usando datos sinteticos con precio real {price:.2f}. "
-                    "Solo el precio de entrada sera preciso, no el analisis de velas.")
         return build_df_from_price(price)
 
     log.error("[ERROR] Todas las fuentes fallaron.")
     return None
-
 
 # ==============================================================
 # LOGICA LST
 # ==============================================================
 
 def build_asia_range(df: pd.DataFrame):
-    """Construye el rango HIGH/LOW de la sesion Asia (19:00-00:00 UTC)."""
     utc        = pytz.UTC
     now        = datetime.now(utc)
     asia_start = now.replace(hour=19, minute=0, second=0, microsecond=0) - timedelta(days=1)
     asia_end   = now.replace(hour=0,  minute=0, second=0, microsecond=0)
 
-    mask = (df.index >= asia_start) & (df.index < asia_end)
-    asia = df[mask]
+    asia = df[(df.index >= asia_start) & (df.index < asia_end)]
 
     if asia.empty:
-        # Si no hay velas de Asia aun, usar el minimo rango disponible
-        last_50 = df.iloc[-50:] if len(df) >= 50 else df
-        state.asia_high  = float(last_50["High"].max())
-        state.asia_low   = float(last_50["Low"].min())
-        state.asia_ready = True
-        log.info(f"[RANGO] Usando rango aproximado - HIGH: {state.asia_high:.2f} | LOW: {state.asia_low:.2f}")
-        return
+        ref = df.iloc[-50:] if len(df) >= 50 else df
+        state.asia_high = float(ref["High"].max())
+        state.asia_low  = float(ref["Low"].min())
+    else:
+        state.asia_high = float(asia["High"].max())
+        state.asia_low  = float(asia["Low"].min())
 
-    state.asia_high  = float(asia["High"].max())
-    state.asia_low   = float(asia["Low"].min())
     state.asia_ready = True
-    log.info(f"[RANGO ASIA] HIGH: {state.asia_high:.2f} | LOW: {state.asia_low:.2f}")
+    log.info(f"[ASIA] HIGH: {state.asia_high:.2f} | LOW: {state.asia_low:.2f}")
 
 
 def calculate_atr(df: pd.DataFrame, period: int = 14) -> float:
-    """Average True Range."""
     h  = df["High"]
     l  = df["Low"]
     cp = df["Close"].shift(1)
@@ -232,34 +218,25 @@ def calculate_atr(df: pd.DataFrame, period: int = 14) -> float:
 
 
 def detect_pattern_w(c3, c2, c1, support: float) -> bool:
-    """Patron W - doble suelo para BUY."""
     l3 = float(c3["Low"]); h2 = float(c2["High"]); l1 = float(c1["Low"])
     return l3 <= support * 1.002 and h2 > l3 * 1.001 and l1 <= support * 1.002 and l1 >= l3
 
 
 def detect_pattern_m(c3, c2, c1, resistance: float) -> bool:
-    """Patron M - doble techo para SELL."""
     h3 = float(c3["High"]); l2 = float(c2["Low"]); h1 = float(c1["High"])
     return h3 >= resistance * 0.998 and l2 < h3 * 0.999 and h1 >= resistance * 0.998 and h1 <= h3
 
 
 def check_fibonacci(from_p: float, to_p: float, current: float, direction: str):
-    """Verifica confluencia con niveles Fibonacci."""
     rng = abs(to_p - from_p)
     for level in CONFIG["FIB_LEVELS"]:
         fp  = (from_p - rng * level) if direction == "BUY" else (from_p + rng * level)
-        tol = fp * CONFIG["FIB_TOLERANCE"]
-        if abs(current - fp) <= tol:
+        if abs(current - fp) <= fp * CONFIG["FIB_TOLERANCE"]:
             return True, level
     return False, 0.0
 
 
 def detect_signal(df: pd.DataFrame, session: str) -> Optional[dict]:
-    """
-    Detecta tomas de liquidez LST:
-    - Tipo 2: Mechazo (precio perfora zona y cierra de vuelta) <- mejor senal
-    - Tipo 1: Continuidad (cierre con cuerpo fuera de la zona)
-    """
     if not state.asia_ready or len(df) < 4:
         return None
 
@@ -270,14 +247,11 @@ def detect_signal(df: pd.DataFrame, session: str) -> Optional[dict]:
     high1  = float(c1["High"]); low1   = float(c1["Low"])
     close1 = float(c1["Close"]); open1  = float(c1["Open"])
     close0 = float(c0["Close"]); open0  = float(c0["Open"])
-
     atr    = calculate_atr(df)
     signal = None
 
-    # --- SENAL BUY ---
-    # Tipo 2: mecha por debajo de AsiaLow, vela cierra arriba (mechazo bajista falso)
+    # BUY
     tipo2_buy = low1  < state.asia_low   and close1 > state.asia_low
-    # Tipo 1: retroceso al soporte de AsiaLow
     tipo1_buy = low1 <= state.asia_low * 1.001 and close1 > state.asia_low
 
     if tipo2_buy or tipo1_buy:
@@ -292,13 +266,13 @@ def detect_signal(df: pd.DataFrame, session: str) -> Optional[dict]:
         if fib_ok:
             conf.append(f"Fibonacci {fib_lvl:.3f}")
         if atr >= CONFIG["MIN_ATR"]:
-            conf.append(f"ATR OK: {atr:.2f}")
-
+            conf.append(f"ATR: {atr:.2f}")
         if len(conf) >= CONFIG["MIN_CONFIRMATIONS"]:
-            signal = {"dir": "BUY", "price": price, "tipo": 2 if tipo2_buy else 1,
+            signal = {"dir": "BUY",  "price": price,
+                      "tipo": 2 if tipo2_buy  else 1,
                       "conf": conf, "session": session}
 
-    # --- SENAL SELL ---
+    # SELL
     tipo2_sell = high1 > state.asia_high  and close1 < state.asia_high
     tipo1_sell = high1 >= state.asia_high * 0.999 and close1 < state.asia_high
 
@@ -314,66 +288,30 @@ def detect_signal(df: pd.DataFrame, session: str) -> Optional[dict]:
         if fib_ok:
             conf.append(f"Fibonacci {fib_lvl:.3f}")
         if atr >= CONFIG["MIN_ATR"]:
-            conf.append(f"ATR OK: {atr:.2f}")
-
+            conf.append(f"ATR: {atr:.2f}")
         if len(conf) >= CONFIG["MIN_CONFIRMATIONS"]:
-            signal = {"dir": "SELL", "price": price, "tipo": 2 if tipo2_sell else 1,
+            signal = {"dir": "SELL", "price": price,
+                      "tipo": 2 if tipo2_sell else 1,
                       "conf": conf, "session": session}
 
     return signal
 
-
 # ==============================================================
-# CALCULO DE LOTAJE
+# LOTAJE
 # ==============================================================
 
 def calculate_lot(price: float, sl: float) -> dict:
-    """Riesgo fijo 0.5% - XAUUSD: 1 pip = $0.10 por lote micro."""
     risk_money = CONFIG["BALANCE"] * (CONFIG["RISK_PCT"] / 100)
     sl_pips    = abs(price - sl) / 0.1
-    lot        = risk_money / (sl_pips * 10.0)
-    lot        = max(0.01, round(lot, 2))
+    lot        = max(0.01, round(risk_money / (sl_pips * 10.0), 2))
     return {"lot": lot, "risk": round(risk_money, 2)}
 
-
 # ==============================================================
-# TELEGRAM
+# SENAL
 # ==============================================================
-
-def send_telegram(msg: str):
-    """Envia mensaje a Telegram."""
-    token   = CONFIG["TG_TOKEN"]
-    chat_id = CONFIG["TG_CHAT_ID"]
-
-    if not token or not chat_id:
-        log.error("[ERROR] TG_TOKEN o TG_CHAT_ID vacios. Verifica las variables en Railway.")
-        return
-
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    try:
-        r = requests.post(url, json={
-            "chat_id"    : chat_id,
-            "text"       : msg,
-            "parse_mode" : "Markdown",
-        }, timeout=10)
-
-        if r.status_code == 200:
-            log.info("[OK] Telegram: mensaje enviado.")
-        elif r.status_code == 404:
-            log.error("[ERROR] Telegram 404: TOKEN INCORRECTO. "
-                      "Ve a Railway -> Variables -> TG_TOKEN y pega el token completo de @BotFather.")
-        elif r.status_code == 400:
-            log.error(f"[ERROR] Telegram 400: CHAT_ID INCORRECTO. "
-                      f"Ve a Railway -> Variables -> TG_CHAT_ID y verifica el numero.")
-        else:
-            log.error(f"[ERROR] Telegram {r.status_code}: {r.text[:150]}")
-    except Exception as e:
-        log.error(f"[ERROR] Telegram conexion: {e}")
-
 
 def send_signal(signal: dict):
-    """Construye y envia la senal LST a Telegram."""
-    d     = signal["dir"]
+    d    = signal["dir"]
     price = signal["price"]
     sl_d  = CONFIG["SL_PIPS"] * 0.1
 
@@ -395,38 +333,30 @@ def send_signal(signal: dict):
 
     msg = (
         f"*SENAL LST - XAUUSD (ORO)*\n"
-        f"`{'='*28}`\n"
         f"*Direccion:* {dir_str}\n"
         f"*Entrada:*   `{price:.2f}`\n"
         f"*Stop Loss:* `{sl:.2f}` ({CONFIG['SL_PIPS']} pips)\n"
         f"*TP1 50%:*  `{tp1:.2f}` (R:R {CONFIG['TP1_RATIO']})\n"
         f"*TP2 50%:*  `{tp2:.2f}` (R:R {CONFIG['TP2_RATIO']})\n"
-        f"`{'='*28}`\n"
         f"*Lotaje:*    `{lot['lot']} lotes`\n"
         f"*Riesgo:*    `${lot['risk']}`\n"
-        f"`{'='*28}`\n"
-        f"*LST:*\n"
-        f"   Toma: {tipo}\n"
-        f"   Sesion: {signal['session']}\n"
-        f"   Asia: `{state.asia_low:.2f}` - `{state.asia_high:.2f}`\n"
+        f"*Toma:* {tipo}\n"
+        f"*Sesion:* {signal['session']}\n"
+        f"*Asia:* `{state.asia_low:.2f}` - `{state.asia_high:.2f}`\n"
         f"{conf}\n"
-        f"`{'='*28}`\n"
-        f"*Gestion:*\n"
-        f"   1) 50% recorrido -> SL a BE\n"
-        f"   2) TP1 -> cerrar 50%\n"
-        f"   3) Resto -> TP2\n"
+        f"1) Al 50% recorrido -> SL a BE\n"
+        f"2) En TP1 -> cerrar 50%\n"
+        f"3) Dejar resto hasta TP2\n"
         f"_{hora}_"
     )
     send_telegram(msg)
     log.info(f"[SIGNAL] {d} | Entrada: {price} | SL: {sl} | Lote: {lot['lot']}")
-
 
 # ==============================================================
 # CICLO PRINCIPAL
 # ==============================================================
 
 def run_analysis():
-    """Analisis LST cada 15 minutos."""
     utc  = pytz.UTC
     now  = datetime.now(utc)
     hour = now.hour
@@ -452,7 +382,6 @@ def run_analysis():
         log.info("[INFO] Esperando rango de Asia...")
         return
 
-    # Sesion Londres: 07:00-10:00 UTC
     if CONFIG["LONDON_START"] <= hour < CONFIG["LONDON_END"]:
         if not state.signal_sent:
             log.info("[LONDRES] Buscando senal LST...")
@@ -464,7 +393,6 @@ def run_analysis():
             else:
                 log.info("[INFO] Sin senal en Londres aun.")
 
-    # Sesion NY: 12:00-16:00 UTC
     elif CONFIG["NY_START"] <= hour < CONFIG["NY_END"]:
         if not state.signal_sent:
             log.info("[NY] Buscando senal LST...")
@@ -481,7 +409,6 @@ def run_analysis():
 
 
 def reset_daily(today: str):
-    """Reset al inicio de cada dia."""
     state.asia_high       = 0.0
     state.asia_low        = float("inf")
     state.asia_ready      = False
@@ -493,10 +420,9 @@ def reset_daily(today: str):
         f"*LST Bot - Nuevo dia*\n"
         f"Fecha: `{today}`\n"
         f"Balance: `${CONFIG['BALANCE']:,.0f}` | "
-        f"Riesgo: `{CONFIG['RISK_PCT']}%` = `${CONFIG['BALANCE']*CONFIG['RISK_PCT']/100:.0f}`\n"
+        f"Riesgo: `{CONFIG['RISK_PCT']}%`\n"
         f"_Construyendo rango Asia..._"
     )
-
 
 # ==============================================================
 # INICIO
@@ -508,21 +434,12 @@ def main():
     log.info("  Liquidity Side Theory | XAUUSD")
     log.info("=" * 50)
 
-    # Verificar configuracion al arrancar
-    errors = []
     if not CONFIG["TG_TOKEN"]:
-        errors.append("TG_TOKEN vacio")
+        log.error("[CONFIG] FALTA TG_TOKEN en Railway Variables.")
     if not CONFIG["TG_CHAT_ID"]:
-        errors.append("TG_CHAT_ID vacio")
+        log.error("[CONFIG] FALTA TG_CHAT_ID en Railway Variables.")
     if not CONFIG["TWELVE_API_KEY"]:
-        errors.append("TWELVE_API_KEY vacio (registrate en twelvedata.com gratis)")
-
-    if errors:
-        for e in errors:
-            log.error(f"[CONFIG] FALTA: {e}")
-        log.error("[CONFIG] Agrega las variables faltantes en Railway -> Variables")
-    else:
-        log.info("[CONFIG] Todas las variables OK.")
+        log.error("[CONFIG] FALTA TWELVE_API_KEY en Railway Variables.")
 
     send_telegram(
         "*LST Gold Bot v3.0 - Iniciado*\n"
