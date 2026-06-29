@@ -57,9 +57,9 @@ class BotState:
     asia_high       : float = 0.0
     asia_low        : float = float("inf")
     asia_ready      : bool  = False
-    signal_sent     : bool  = False
     last_signal_dir : str   = ""
     last_reset_date : str   = ""
+    signal_count    : int   = 0
 
 state = BotState()
 
@@ -383,26 +383,24 @@ def run_analysis():
         return
 
     if CONFIG["LONDON_START"] <= hour < CONFIG["LONDON_END"]:
-        if not state.signal_sent:
-            log.info("[LONDRES] Buscando senal LST...")
-            sig = detect_signal(df, "Londres")
-            if sig:
-                send_signal(sig)
-                state.signal_sent     = True
-                state.last_signal_dir = sig["dir"]
-            else:
-                log.info("[INFO] Sin senal en Londres aun.")
+        log.info("[LONDRES] Buscando senal LST...")
+        sig = detect_signal(df, "Londres")
+        if sig:
+            send_signal(sig)
+            state.signal_count    += 1
+            state.last_signal_dir  = sig["dir"]
+        else:
+            log.info("[INFO] Sin senal en Londres aun.")
 
     elif CONFIG["NY_START"] <= hour < CONFIG["NY_END"]:
-        if not state.signal_sent:
-            log.info("[NY] Buscando senal LST...")
-            sig = detect_signal(df, "New York")
-            if sig:
-                send_signal(sig)
-                state.signal_sent     = True
-                state.last_signal_dir = sig["dir"]
-            else:
-                log.info("[INFO] Sin senal en NY aun.")
+        log.info("[NY] Buscando senal LST...")
+        sig = detect_signal(df, "New York")
+        if sig:
+            send_signal(sig)
+            state.signal_count    += 1
+            state.last_signal_dir  = sig["dir"]
+        else:
+            log.info("[INFO] Sin senal en NY aun.")
 
     else:
         log.info(f"[INFO] Fuera de sesion ({hour:02d}:xx UTC).")
@@ -412,7 +410,7 @@ def reset_daily(today: str):
     state.asia_high       = 0.0
     state.asia_low        = float("inf")
     state.asia_ready      = False
-    state.signal_sent     = False
+    state.signal_count    = 0
     state.last_signal_dir = ""
     state.last_reset_date = today
     log.info(f"[RESET] Nuevo dia: {today}")
